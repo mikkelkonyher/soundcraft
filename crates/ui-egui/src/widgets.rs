@@ -86,6 +86,16 @@ pub(crate) fn selector_box_with_tooltip(ui: &mut Ui, width: f32, height: f32, te
     resp.on_hover_text(tooltip)
 }
 
+/// A knob's travel: from the lower left, sweeping 270° clockwise (radians).
+const KNOB_START: f32 = std::f32::consts::PI * 0.75;
+const KNOB_SWEEP: f32 = std::f32::consts::PI * 1.5;
+
+/// Points along a knob's arc of `radius` around `c`, from angle `a0` to `a1`.
+fn knob_arc(c: egui::Pos2, radius: f32, a0: f32, a1: f32) -> Vec<egui::Pos2> {
+    let n = ((a1 - a0).abs() / KNOB_SWEEP * 24.0).ceil().max(1.0) as usize;
+    (0..=n).map(|i| c + egui::Vec2::angled(a0 + (a1 - a0) * i as f32 / n as f32) * radius).collect()
+}
+
 /// Rotary knob for pan / send pan (-1..1). Drag vertically; double-click resets.
 pub fn pan_knob(ui: &mut Ui, size: f32, value: &mut f32, tip: &str) -> Response {
     let t = Tokens::current();
@@ -100,24 +110,61 @@ pub fn pan_knob(ui: &mut Ui, size: f32, value: &mut f32, tip: &str) -> Response 
     let c = r.center();
     let rad = size * 0.42;
     ui.painter().circle(c, rad, t.knob_bg, Stroke::new(1.0, t.knob_ring));
-    let n = 24;
-    let start = std::f32::consts::PI * 0.75;
-    let sweep = std::f32::consts::PI * 1.5;
-    let arc = |a0: f32, a1: f32| -> Vec<egui::Pos2> {
-        (0..=n)
-            .map(|i| {
-                let a = a0 + (a1 - a0) * i as f32 / n as f32;
-                c + vec2(a.cos(), a.sin()) * (rad + 2.5)
-            })
-            .collect()
-    };
-    let mid = start + sweep * 0.5;
-    let at = start + sweep * (*value * 0.5 + 0.5);
+    let mid = KNOB_START + KNOB_SWEEP * 0.5;
+    let at = KNOB_START + KNOB_SWEEP * (*value * 0.5 + 0.5);
     let (a0, a1) = if at < mid { (at, mid) } else { (mid, at) };
-    ui.painter().add(egui::Shape::line(arc(a0, a1), Stroke::new(2.0, t.counter_text)));
+    ui.painter().add(egui::Shape::line(knob_arc(c, rad + 2.5, a0, a1), Stroke::new(2.0, t.counter_text)));
     let tip_pos = c + vec2(at.cos(), at.sin()) * rad * 0.85;
     ui.painter().line_segment([c, tip_pos], Stroke::new(2.0, t.knob_pointer));
     resp.on_hover_text(tip)
+}
+
+/// Rotary knob over normalized travel (0..1). Drag vertically (Shift: fine); with keyboard focus
+/// the arrow keys step (Shift: fine); double-click returns to `default`. `bipolar` draws the value
+/// arc from the centre (gain), otherwise from the left stop (frequency, Q). Returns the response
+/// and the new travel when it changed. The knob fills the largest circle that fits `r`.
+pub fn param_knob(ui: &mut Ui, r: Rect, id: egui::Id, norm: f32, default: f32, bipolar: bool, accent: Color32) -> (Response, Option<f32>) {
+    let t = Tokens::current();
+    let size = r.width().min(r.height());
+    let resp = ui.interact(r, id, Sense::click_and_drag());
+    let norm = if norm.is_finite() { norm.clamp(0.0, 1.0) } else { default };
+    let fine = ui.input(|i| i.modifiers.shift);
+    let mut next = norm;
+    if resp.dragged() {
+        let d = resp.drag_delta();
+        next += (d.x - d.y) * if fine { 0.0008 } else { 0.005 };
+    }
+    if resp.has_focus() {
+        let step = if fine { 0.002 } else { 0.02 };
+        ui.input(|i| {
+            if i.key_pressed(egui::Key::ArrowUp) || i.key_pressed(egui::Key::ArrowRight) {
+                next += step;
+            }
+            if i.key_pressed(egui::Key::ArrowDown) || i.key_pressed(egui::Key::ArrowLeft) {
+                next -= step;
+            }
+        });
+    }
+    if resp.double_clicked() {
+        next = default;
+    }
+    let next = next.clamp(0.0, 1.0);
+    let c = r.center();
+    let rad = size * 0.36;
+    let p = ui.painter();
+    if resp.has_focus() {
+        p.circle_stroke(c, rad + 6.0, Stroke::new(1.0, t.accent));
+    }
+    p.add(egui::Shape::line(knob_arc(c, rad + 3.0, KNOB_START, KNOB_START + KNOB_SWEEP), Stroke::new(2.0, t.knob_ring.gamma_multiply(0.5))));
+    let at = KNOB_START + KNOB_SWEEP * next;
+    let from = if bipolar { KNOB_START + KNOB_SWEEP * 0.5 } else { KNOB_START };
+    if (at - from).abs() > 1e-3 {
+        p.add(egui::Shape::line(knob_arc(c, rad + 3.0, from.min(at), from.max(at)), Stroke::new(2.5, accent)));
+    }
+    p.circle(c, rad, t.knob_bg, Stroke::new(1.0, if resp.hovered() { accent } else { t.knob_ring }));
+    p.line_segment([c + egui::Vec2::angled(at) * rad * 0.3, c + egui::Vec2::angled(at) * rad * 0.9], Stroke::new(2.0, t.knob_pointer));
+    let changed = (next - norm).abs() > f32::EPSILON;
+    (resp, changed.then_some(next))
 }
 
 /// Format a pan value like a console: "<45", "0", "45>".
@@ -134,19 +181,13 @@ pub fn pan_text(v: f32) -> String {
 pub fn meter(ui: &Ui, r: Rect, level: f32, hold: f32, clip: bool) {
     let t = Tokens::current();
     ui.painter().rect_filled(r, 0.0, t.meter_bg);
-    let pos = |v: f32| -> f32 {
-        let db = if v <= 1e-6 { -80.0 } else { 20.0 * v.log10() };
-        meter_pos(db)
-    };
+    let pos = level_pos;
     let h = r.height() - 4.0;
     let inner = Rect::from_min_max(pos2(r.min.x + 1.0, r.min.y + 3.0), pos2(r.max.x - 1.0, r.max.y - 1.0));
     let lv = pos(level);
     if lv > 0.0 {
         let top = inner.max.y - h * lv;
-        // Draw in zones.
-        let zones =
-            [(0.0, meter_pos(-12.0), t.meter_green), (meter_pos(-12.0), meter_pos(-3.0), t.meter_yellow), (meter_pos(-3.0), 1.0, t.meter_red)];
-        for (a, b, col) in zones {
+        for (a, b, col) in meter_zones(&t) {
             let y0 = inner.max.y - h * a;
             let y1 = (inner.max.y - h * b).max(top);
             if y1 < y0 {
@@ -157,13 +198,84 @@ pub fn meter(ui: &Ui, r: Rect, level: f32, hold: f32, clip: bool) {
     let hv = pos(hold);
     if hv > 0.01 {
         let y = inner.max.y - h * hv;
-        ui.painter().line_segment(
-            [pos2(inner.min.x, y), pos2(inner.max.x, y)],
-            Stroke::new(1.0, if hv > meter_pos(-3.0) { t.meter_red } else { t.meter_yellow }),
-        );
+        ui.painter().line_segment([pos2(inner.min.x, y), pos2(inner.max.x, y)], Stroke::new(1.0, hold_color(&t, hv)));
     }
     let clip_r = Rect::from_min_max(r.min, pos2(r.max.x, r.min.y + 2.5));
     ui.painter().rect_filled(clip_r, 0.0, if clip { t.meter_red } else { t.meter_clip_off });
+}
+
+/// A child Ui confined and clipped to `r`: nothing drawn in it can spill out, and placing it does
+/// not move the parent's cursor.
+pub fn confined(ui: &mut Ui, r: Rect) -> Ui {
+    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(r));
+    child.set_clip_rect(r.intersect(ui.clip_rect()));
+    child
+}
+
+/// A small rounded on/off switch (a plugin's IN or Ø): quiet when off, lit with the accent colour
+/// when on. `label` names it for tooltips and assistive technology.
+pub fn pill_switch(ui: &mut Ui, id: egui::Id, r: Rect, text: &str, on: bool, label: &str) -> Response {
+    let t = Tokens::current();
+    let resp = ui.interact(r, id, Sense::click());
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, on, label));
+    let fill = if on {
+        t.accent
+    } else if resp.hovered() {
+        t.button_hi
+    } else {
+        t.button
+    };
+    let p = ui.painter();
+    p.rect_filled(r, CornerRadius::same(9), fill);
+    if resp.has_focus() {
+        p.rect_stroke(r.expand(2.0), CornerRadius::same(10), Stroke::new(1.0, t.accent), StrokeKind::Outside);
+    }
+    p.text(r.center(), Align2::CENTER_CENTER, text, bold(10.0), if on { Color32::WHITE } else { t.text_dim });
+    resp.on_hover_text(label)
+}
+
+/// Horizontal peak meter, left to right, with the same zones and scale as `meter`, a peak-hold
+/// tick and a clip lamp at the right end; values are linear peaks. Returns the lamp's rectangle.
+pub fn hmeter(ui: &Ui, r: Rect, level: f32, hold: f32, clip: bool) -> Rect {
+    let t = Tokens::current();
+    let lamp = Rect::from_min_max(pos2(r.max.x - 8.0, r.min.y), r.max);
+    let bar = Rect::from_min_max(r.min, pos2(lamp.min.x - 2.0, r.max.y));
+    let p = ui.painter();
+    p.rect_filled(bar, 2.0, t.meter_bg);
+    let inner = bar.shrink(1.0);
+    let x = |f: f32| inner.min.x + inner.width() * f;
+    let lv = level_pos(level);
+    if lv > 0.0 {
+        for (a, b, col) in meter_zones(&t) {
+            let (x0, x1) = (x(a), x(b.min(lv)));
+            if x1 > x0 {
+                p.rect_filled(Rect::from_min_max(pos2(x0, inner.min.y), pos2(x1, inner.max.y)), 0.0, col);
+            }
+        }
+    }
+    let hv = level_pos(hold);
+    if hv > 0.01 {
+        let hx = x(hv);
+        p.line_segment([pos2(hx, inner.min.y), pos2(hx, inner.max.y)], Stroke::new(1.5, hold_color(&t, hv)));
+    }
+    p.rect_filled(lamp, 2.0, if clip { t.meter_red } else { t.meter_clip_off });
+    lamp
+}
+
+/// A linear peak's 0..1 meter position.
+fn level_pos(v: f32) -> f32 {
+    meter_pos(if v <= 1e-6 { -80.0 } else { 20.0 * v.log10() })
+}
+
+/// The meter's colour zones as `(from, to, colour)` in meter positions: green, then yellow from
+/// -12 dB, red from -3 dB.
+fn meter_zones(t: &Tokens) -> [(f32, f32, Color32); 3] {
+    [(0.0, meter_pos(-12.0), t.meter_green), (meter_pos(-12.0), meter_pos(-3.0), t.meter_yellow), (meter_pos(-3.0), 1.0, t.meter_red)]
+}
+
+/// A peak-hold tick's colour at meter position `pos`.
+fn hold_color(t: &Tokens, pos: f32) -> Color32 {
+    if pos > meter_pos(-3.0) { t.meter_red } else { t.meter_yellow }
 }
 
 /// dB → 0..1 meter position (logarithmic-ish scale like hardware meters).

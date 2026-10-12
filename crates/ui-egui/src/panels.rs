@@ -369,11 +369,17 @@ fn plugin_windows(app: &mut SoundApp, ctx: &egui::Context) {
         let Some(info) = crate::mix_window::plugin_info(&ins.plugin) else { continue };
         let place = if instrument { "instrument".to_string() } else { char::from(b'a'.saturating_add(slot as u8)).to_string() };
         let mut open = true;
+        // EQ 7-Band's editor needs room for its seven band sections and, like any plugin window in
+        // the incumbent, does not fold away.
+        let eq7 = info.id == "eq_7band";
+        let width = if eq7 { 960.0 } else { 340.0 };
         egui::Window::new(format!("{tname} · {place} · {}", info.name))
             .id(egui::Id::new(("plugin", tid.0, slot)))
             .open(&mut open)
-            .default_width(340.0)
-            .default_pos(egui::pos2(ctx.content_rect().width() - 380.0, 120.0))
+            .default_width(width)
+            .resize(|r| if eq7 { r.min_width(800.0) } else { r })
+            .collapsible(!eq7)
+            .default_pos(egui::pos2((ctx.content_rect().width() - width - 40.0).max(8.0), 120.0))
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     // Bypass and presets act on insert slots.
@@ -414,8 +420,14 @@ fn plugin_windows(app: &mut SoundApp, ctx: &egui::Context) {
                     ui.label(egui::RichText::new("Load and edit sounds in the plugin's own editor.").color(Tokens::current().text_dim));
                     return;
                 }
-                if info.id == "eq_7band" || info.id == "eq_1band" {
-                    eq_curve(ui, info.id, &ins);
+                if eq7 {
+                    // Tall enough for the graph and the band sections; a short screen scrolls.
+                    let tall = (ctx.content_rect().height() - 220.0).clamp(160.0, 520.0);
+                    egui::ScrollArea::vertical().min_scrolled_height(tall).show(ui, |ui| crate::eq_editor::show(app, ui, tid, slot, info, &ins));
+                    return;
+                }
+                if info.id == "eq_1band" {
+                    eq_curve(ui, &ins);
                 }
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     egui::Grid::new(("pg", tid.0, slot)).num_columns(3).show(ui, |ui| {
@@ -466,18 +478,15 @@ fn plugin_windows(app: &mut SoundApp, ctx: &egui::Context) {
     app.ui.plugin_windows = keep;
 }
 
-fn eq_curve(ui: &mut Ui, id: &str, ins: &soundcraft_model::Insert) {
+/// EQ 1-Band's response, above its parameters.
+fn eq_curve(ui: &mut Ui, ins: &soundcraft_model::Insert) {
     let t = Tokens::current();
     let (r, _) = ui.allocate_exact_size(vec2(ui.available_width().max(300.0), 110.0), Sense::hover());
-    ui.painter().rect_filled(r, 4.0, Color32::from_rgb(14, 18, 22));
+    ui.painter().rect_filled(r, 4.0, t.eq_bg);
     let n = 160;
     let freqs: Vec<f32> = (0..n).map(|i| 20.0 * 1000f32.powf(i as f32 / (n - 1) as f32)).collect();
     let params: Vec<(&str, f32)> = ins.params.iter().map(|(k, v)| (k.as_str(), *v)).collect();
-    let resp = if id == "eq_7band" {
-        soundcraft_dsp::eq7_response(&params, &freqs, 48_000.0)
-    } else {
-        soundcraft_dsp::eq1_response(&params, &freqs, 48_000.0)
-    };
+    let resp = soundcraft_dsp::eq1_response(&params, &freqs, 48_000.0);
     for db in [-12.0f32, 0.0, 12.0] {
         let y = r.center().y - db / 18.0 * r.height() * 0.5;
         ui.painter().line_segment([pos2(r.min.x, y), pos2(r.max.x, y)], Stroke::new(1.0, Color32::from_rgb(40, 50, 60)));

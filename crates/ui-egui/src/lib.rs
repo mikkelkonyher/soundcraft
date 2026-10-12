@@ -9,6 +9,7 @@ pub mod credits;
 pub mod dialogs;
 pub mod docking;
 pub mod edit_window;
+pub mod eq_editor;
 pub mod extra_windows;
 pub mod fonts;
 pub mod icons;
@@ -238,6 +239,8 @@ pub struct SoundApp {
     pub dialogs: dialogs::Dialogs,
     pub meters: HashMap<TrackId, MeterDisplay>,
     pub main_meter: MeterDisplay,
+    /// Input and output meters of the inserts whose plugin windows are open: `[in, out]`.
+    pub plugin_meters: HashMap<(TrackId, usize), [MeterDisplay; 2]>,
     /// Reused multichannel snapshot; populated at an adaptive rate by `logic`.
     meter_snapshot: soundcraft_playback::MeterSnapshot,
     pub gesture: Option<Gesture>,
@@ -301,6 +304,7 @@ impl SoundApp {
             dialogs: dialogs::Dialogs::default(),
             meters: HashMap::new(),
             main_meter: MeterDisplay::default(),
+            plugin_meters: HashMap::new(),
             meter_snapshot: soundcraft_playback::MeterSnapshot::default(),
             gesture: None,
             edit_layout: edit_window::EditLayout::default(),
@@ -354,6 +358,7 @@ impl SoundApp {
                 }
                 if id == "track.clear_clip_indicators" {
                     self.meters.values_mut().chain([&mut self.main_meter]).for_each(|m| m.clip = false);
+                    self.plugin_meters.values_mut().flatten().for_each(|m| m.clip = false);
                 }
                 Ok(v)
             }
@@ -689,6 +694,7 @@ impl SoundApp {
                     self.edit_layout.follow_hold = false;
                     self.meters.clear();
                     self.main_meter = MeterDisplay::default();
+                    self.plugin_meters.clear();
                 }
                 TransportRequest::Play => {
                     if !self.is_playing() {
@@ -737,6 +743,7 @@ impl SoundApp {
         }
         // Read back the position.
         if let Some(p) = &self.player {
+            p.set_insert_meters(!self.ui.plugin_windows.is_empty());
             let playing = p.is_playing();
             let ended = self.engine.transport.playing && !playing;
             if ended {
@@ -758,6 +765,8 @@ impl SoundApp {
             }
             let main = snap.main.peak;
             feed_meter(&mut self.main_meter, main, 0.0, dt);
+            let session = self.engine.session();
+            feed_plugin_meters(&mut self.plugin_meters, &self.ui.plugin_windows, snap, dt, |tid, slot| input_gain(session, tid, slot));
             if ended {
                 self.stop_play();
             }
@@ -776,7 +785,7 @@ impl SoundApp {
             }
         }
         if !self.meters_live() {
-            for d in self.meters.values_mut() {
+            for d in self.meters.values_mut().chain(self.plugin_meters.values_mut().flatten()) {
                 feed_meter(d, [0.0, 0.0], 0.0, dt);
             }
             feed_meter(&mut self.main_meter, [0.0, 0.0], 0.0, dt);
@@ -930,6 +939,33 @@ impl SoundApp {
     }
 }
 
+/// Feed the input/output meters of the open plugin windows from the snapshot (and drop those of
+/// closed ones), with the same ballistics as the track meters. The input meter shows the level
+/// after the plugin's own input gain (`input_gain(track, slot)`, linear), the level it processes.
+fn feed_plugin_meters(
+    meters: &mut HashMap<(TrackId, usize), [MeterDisplay; 2]>,
+    open: &[(TrackId, usize)],
+    snap: &soundcraft_playback::MeterSnapshot,
+    dt: f32,
+    input_gain: impl Fn(TrackId, usize) -> f32,
+) {
+    meters.retain(|k, _| open.contains(k));
+    for &(tid, slot) in open {
+        let io = snap.tracks.get(&tid).and_then(|m| m.insert_io.get(slot)).copied().unwrap_or_default();
+        let [inp, out] = meters.entry((tid, slot)).or_default();
+        feed_meter(inp, [io[0] * input_gain(tid, slot); 2], 0.0, dt);
+        feed_meter(out, [io[1]; 2], 0.0, dt);
+    }
+}
+
+/// The linear gain of an insert's input-gain parameter (`soundcraft_dsp::INPUT_GAIN`), or 1 for a
+/// plugin without one.
+fn input_gain(s: &soundcraft_model::Session, tid: TrackId, slot: usize) -> f32 {
+    let Some(ins) = s.track(tid).and_then(|t| t.mixer.inserts.get(slot)).and_then(Option::as_ref) else { return 1.0 };
+    let Some(p) = mix_window::plugin_info(&ins.plugin).and_then(|i| i.param(soundcraft_dsp::INPUT_GAIN)) else { return 1.0 };
+    soundcraft_dsp::db_to_gain(p.clamp(ins.params.get(p.id).copied().unwrap_or(p.default)))
+}
+
 fn feed_meter(d: &mut MeterDisplay, peak: [f32; 2], gr: f32, dt: f32) {
     // Instant attack, ~26 dB/s release, 2 s peak hold.
     let fall = 10f32.powf(-26.0 * dt / 20.0);
@@ -959,8 +995,44 @@ fn feed_meter(d: &mut MeterDisplay, peak: [f32; 2], gr: f32, dt: f32) {
 
 #[cfg(test)]
 mod tests {
-    use super::{Services, SoundApp, automation_step_due};
+    use super::{Services, SoundApp, automation_step_due, feed_plugin_meters};
     use serde_json::json;
+
+    #[test]
+    fn open_plugin_windows_get_input_and_output_meters() {
+        use soundcraft_model::TrackId;
+        let t = TrackId(7);
+        let mut snap = soundcraft_playback::MeterSnapshot::default();
+        let mut strip = soundcraft_mix::StripMeter::default();
+        strip.insert_io[3] = [0.5, 1.2];
+        snap.tracks.insert(t, strip);
+        let mut meters = std::collections::HashMap::new();
+        meters.insert((TrackId(9), 0), Default::default());
+        feed_plugin_meters(&mut meters, &[(t, 3)], &snap, 1.0 / 60.0, |_, _| 1.0);
+        assert!(!meters.contains_key(&(TrackId(9), 0)), "a closed window's meters are dropped");
+        let [inp, out] = meters[&(t, 3)];
+        assert_eq!((inp.level[0], out.level[0]), (0.5, 1.2));
+        assert!(!inp.clip && out.clip, "only the output went over 0 dBFS");
+        // With +6 dB of input gain the input meter shows what the plugin processes, and clips.
+        let mut meters = std::collections::HashMap::new();
+        feed_plugin_meters(&mut meters, &[(t, 3)], &snap, 1.0 / 60.0, |_, _| 2.0);
+        let [inp, _] = meters[&(t, 3)];
+        assert_eq!(inp.level[0], 1.0);
+        assert!(inp.clip);
+    }
+
+    #[test]
+    fn the_input_meter_follows_an_inserts_input_gain() {
+        let mut app = SoundApp::new(soundcraft_engine::demo::demo_engine(), None, Services::default());
+        let kick = app.engine.session().track_by_name("Kick").unwrap().id;
+        let eq_slot = 0;
+        app.run("mix.insert_params", json!({"track": kick.0, "slot": eq_slot, "params": {"input_gain": 6.0}})).unwrap();
+        let g = super::input_gain(app.engine.session(), kick, eq_slot);
+        assert!((g - soundcraft_dsp::db_to_gain(6.0)).abs() < 1e-6, "{g}");
+        // A plugin without an input gain (the Kick's compressor) and an empty slot read 1.
+        assert_eq!(super::input_gain(app.engine.session(), kick, 1), 1.0);
+        assert_eq!(super::input_gain(app.engine.session(), kick, 9), 1.0);
+    }
 
     #[test]
     fn new_session_stops_playback_and_the_old_clock() {

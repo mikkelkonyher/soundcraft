@@ -1,6 +1,6 @@
 # Where SoundCraft falls short of Pro Tools
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-10 · **Change:** minor (alpha blockers marked after the core-workflow gate) · **Target:** Avid Pro Tools Ultimate 2026.4.1
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-12 · **Change:** minor (G-08: EQ 7-Band editor) · **Target:** Avid Pro Tools Ultimate 2026.4.1
 
 Every known shortfall, one entry each, ranked by how much it stops a Pro Tools user from doing
 real work in SoundCraft. This is the work list: pick from the top. Rows marked **alpha blocker**
@@ -115,8 +115,8 @@ launch #142; Linux #45, #107.
 ### G-08. Built-in plugins
 
 See [`plugin-parity.md`](plugin-parity.md): 26 processors + 2 instruments against Pro Tools'
-roughly 80 bundled processors and instruments; no fidelity checks; generic parameter UIs; EQ
-parametric request #139. ≈ 80–120 h.
+roughly 80 bundled processors and instruments; no fidelity checks; generic parameter UIs (EQ
+7-Band has its own editor, #139). ≈ 80–120 h.
 
 ### G-09. Localization
 
@@ -196,5 +196,6 @@ missing. Out of scope unless the owner decides otherwise.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-12 | minor | G-08: EQ 7-Band has its own editor (#139) |
 | 2026-10-10 | minor | Marked the alpha blockers (G-01, G-02, G-03; parts of G-05 and G-06) from the core-workflow gate |
 | 2026-10-10 | major | Created from the full re-measure against Pro Tools Ultimate 2026.4.1: 22 ranked gaps with evidence and estimates |
