@@ -54,7 +54,7 @@
 use soundcraft_dsp::pan::{PanLaw, SpeakerPos, SurroundParams, gains};
 use soundcraft_dsp::{Plugin, SampleSource, db_to_gain};
 use soundcraft_model::{
-    AutoParam, BusId, ChannelFormat, Clip, ClipContent, Route, Session, SourceAudio, Speaker, SurroundPan, Track, TrackId, TrackKind,
+    AutoParam, BusId, ChannelFormat, Clip, ClipContent, INSERT_SLOTS, Route, Session, SourceAudio, Speaker, SurroundPan, Track, TrackId, TrackKind,
 };
 use soundcraft_time::{Range, Samples};
 use std::collections::HashMap;
@@ -150,6 +150,9 @@ pub struct StripMeter {
     pub peaks: Vec<f32>,
     /// Gain reduction of the first dynamics insert, dB.
     pub gain_reduction_db: f32,
+    /// Peak into and out of each insert (linear, the loudest channel): `[in, out]`. Zero for an
+    /// empty, inactive or bypassed slot.
+    pub insert_io: [[f32; 2]; INSERT_SLOTS],
 }
 
 impl StripMeter {
@@ -158,6 +161,7 @@ impl StripMeter {
         self.peak = o.peak;
         self.peaks.clone_from(&o.peaks);
         self.gain_reduction_db = o.gain_reduction_db;
+        self.insert_io = o.insert_io;
     }
 
     fn measure(&mut self, bufs: &[Vec<f32>], frames: usize, gr: f32) {
@@ -201,6 +205,8 @@ struct Strip {
     held: Vec<u8>,
     muted: bool,
     gr: f32,
+    /// Peak into and out of each insert this block (see `StripMeter::insert_io`).
+    insert_io: [[f32; 2]; INSERT_SLOTS],
     /// Per-clip effect chains (Clip Effects) and a scratch buffer to render clips into.
     clip_fx: HashMap<u64, ClipFx>,
     clipbuf: Vec<Vec<f32>>,
@@ -275,6 +281,7 @@ impl Strip {
             held: Vec::new(),
             muted: false,
             gr: 0.0,
+            insert_io: [[0.0; 2]; INSERT_SLOTS],
             clip_fx: HashMap::new(),
             clipbuf: Vec::new(),
             latency: 0,
@@ -313,6 +320,9 @@ pub struct MixEngine {
     pub input: Vec<Vec<f32>>,
     /// Transport stopped: only monitored inputs sound (no clips).
     pub monitor_only: bool,
+    /// Measure each insert's input and output peak (`StripMeter::insert_io`). Off by default: only
+    /// a plugin window's meters need it, and an offline render never does.
+    pub meter_inserts: bool,
     /// Recording: record-armed tracks hear their input (auto input).
     pub recording: bool,
     /// Mix the metronome (Options > Click) into the output. Playback turns this on; offline renders
@@ -384,6 +394,7 @@ impl MixEngine {
             track_latency: 0,
             input: Vec::new(),
             monitor_only: false,
+            meter_inserts: false,
             recording: false,
             metronome: false,
             external: false,
@@ -607,7 +618,7 @@ impl MixEngine {
             }
         }
         let busses = std::mem::take(&mut self.busses);
-        let live_in = LiveInput { input: &self.input, monitor_only: self.monitor_only, recording: self.recording };
+        let live_in = LiveInput { input: &self.input, monitor_only: self.monitor_only, recording: self.recording, meter_inserts: self.meter_inserts };
         run_strips(&mut work, |(i, st)| {
             if let Some(t) = s.tracks.get(*i) {
                 process_strip(s, t, st, &busses, &live_in, pos, frames, any_solo);
@@ -659,7 +670,8 @@ impl MixEngine {
             if st.scratch.len() < self.max_block {
                 st.scratch.resize(self.max_block, 0.0);
             }
-            let live_in = LiveInput { input: &self.input, monitor_only: self.monitor_only, recording: self.recording };
+            let live_in =
+                LiveInput { input: &self.input, monitor_only: self.monitor_only, recording: self.recording, meter_inserts: self.meter_inserts };
             process_strip(s, t, &mut st, &self.busses, &live_in, pos, frames, any_solo);
             let ch = st.buf.len();
             st.align.set(if pdc { lmax_a.saturating_sub(st.latency) } else { 0 }, ch);
@@ -741,7 +753,9 @@ impl MixEngine {
 
     /// Send, meter and pan a processed strip into the busses / main mix.
     fn route_strip(&mut self, t: &Track, strip: &mut Strip, pos: Samples, frames: usize) {
-        self.meters.entry(t.id).or_default().measure(&strip.buf, frames, strip.gr);
+        let meter = self.meters.entry(t.id).or_default();
+        meter.measure(&strip.buf, frames, strip.gr);
+        meter.insert_io = strip.insert_io;
         let src_fmt = strip_format(t, strip.buf.len());
         let law = self.pan_law;
         for (i, snd) in t.mixer.sends.iter().enumerate() {
@@ -799,6 +813,8 @@ struct LiveInput<'a> {
     input: &'a [Vec<f32>],
     monitor_only: bool,
     recording: bool,
+    /// Measure each insert's input and output peak this block.
+    meter_inserts: bool,
 }
 
 fn process_strip(
@@ -920,13 +936,20 @@ fn process_strip(
     }
     let mut gr = 0.0f32;
     let mut latency = 0usize;
+    strip.insert_io = [[0.0; 2]; INSERT_SLOTS];
     for (i, ins) in t.mixer.inserts.iter().enumerate() {
         let (Some(ins), Some(Some(slot))) = (ins, strip.plugins.get_mut(i)) else { continue };
         if !ins.active || ins.bypass {
             continue;
         }
         apply_params(slot, ins, t, i, pos);
+        let input = if live.meter_inserts { loudest(&strip.buf, frames) } else { 0.0 };
         slot.plugin.process(&mut strip.buf, frames);
+        if live.meter_inserts
+            && let Some(io) = strip.insert_io.get_mut(i)
+        {
+            *io = [input, loudest(&strip.buf, frames)];
+        }
         latency = latency.saturating_add(slot.plugin.latency());
         if gr == 0.0 {
             gr = slot.plugin.gain_reduction_db();
@@ -1476,6 +1499,11 @@ fn lerp_gain(db0: f32, db1: f32, i: usize, n: usize) -> f32 {
 
 fn peak(x: &[f32]) -> f32 {
     x.iter().fold(0.0f32, |m, v| if v.is_finite() { m.max(v.abs()) } else { m })
+}
+
+/// The loudest channel's peak over the first `frames` samples.
+fn loudest(bufs: &[Vec<f32>], frames: usize) -> f32 {
+    bufs.iter().map(|b| peak(b.get(..frames).unwrap_or(&[]))).fold(0.0, f32::max)
 }
 
 /// Per-block routing gains: `m[src][dst]`.
@@ -2482,6 +2510,32 @@ mod tests {
         let r = x(1) + h * x(2) + h * x(5);
         assert!((out[0][1000] - l).abs() < 1e-5, "{} vs {l}", out[0][1000]);
         assert!((out[1][1000] - r).abs() < 1e-5, "{} vs {r}", out[1][1000]);
+    }
+
+    #[test]
+    fn inserts_report_their_input_and_output_peaks() {
+        let (mut s, t) = session_with_dc(0.5, 4800);
+        let mut boost = Insert::new("trim");
+        boost.params.insert("gain".into(), 6.0);
+        let mut off = Insert::new("trim");
+        off.bypass = true;
+        let tr = s.track_mut(t).unwrap();
+        tr.mixer.inserts[2] = Some(boost);
+        tr.mixer.inserts[4] = Some(off);
+        let mut eng = MixEngine::new(48_000.0, 512);
+        let mut buf = vec![vec![0.0; 512]; 2];
+        eng.render(&s, 0, 512, &mut buf);
+        assert_eq!(eng.meters.get(&t).map(|m| m.insert_io[2]), Some([0.0, 0.0]), "off unless asked for");
+        eng.meter_inserts = true;
+        // Well past the trim's smoothing.
+        for block in 1..8 {
+            eng.render(&s, block * 512, 512, &mut buf);
+        }
+        let io = eng.meters.get(&t).map(|m| m.insert_io).unwrap();
+        assert!((io[2][0] - 0.5).abs() < 1e-4, "in {:?}", io[2]);
+        assert!((io[2][1] - 0.5 * db_to_gain(6.0)).abs() < 1e-3, "out {:?}", io[2]);
+        assert_eq!(io[4], [0.0, 0.0], "a bypassed insert reports nothing");
+        assert_eq!(io[0], [0.0, 0.0], "an empty slot reports nothing");
     }
 
     #[test]
