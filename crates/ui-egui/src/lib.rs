@@ -812,8 +812,9 @@ impl SoundApp {
             if matches!(self.gesture, Some(Gesture::Fader { .. })) {
                 self.gesture = None;
             }
-            // Keep a running automation pass merged until playback stops.
-            if !ctx.egui_wants_keyboard_input() && self.touched.is_empty() {
+            // Keep a running automation pass merged until playback stops, and a scroll gesture
+            // (a plugin control set with the wheel) merged while it lasts.
+            if !ctx.egui_wants_keyboard_input() && self.touched.is_empty() && !ctx.input(|i| i.is_scrolling()) {
                 self.engine.end_merge();
             }
         }

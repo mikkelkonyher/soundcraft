@@ -379,11 +379,16 @@ fn plugin_windows(app: &mut SoundApp, ctx: &egui::Context) {
                     // Bypass and presets act on insert slots.
                     if !instrument {
                         ui.label(egui::RichText::new(&ins.preset).color(Tokens::current().text_dim));
-                        let label = if ins.bypass { "BYPASSED" } else { "Bypass" };
-                        if ui.button(label).clicked() {
+                        // One label; a bypassed insert lights the button in the colour the mixer
+                        // gives bypassed inserts.
+                        let mut bypass = egui::Button::new("Bypass").selected(ins.bypass);
+                        if ins.bypass {
+                            bypass = bypass.fill(Tokens::current().insert_bypass);
+                        }
+                        if ui.add(bypass).clicked() {
                             let _ = app.run("mix.insert_bypass", json!({"track": tid.0, "slot": slot}));
                         }
-                        ui.menu_button("Presets ▾", |ui| preset_menu(app, ui, tid, slot, info, &ins));
+                        ui.menu_button("Presets ⏷", |ui| preset_menu(app, ui, tid, slot, info, &ins));
                     }
                     if soundcraft_mix::is_third_party(&ins.plugin) {
                         let open = app.player.as_ref().is_some_and(|p| p.editor_open(tid, slot));
