@@ -169,6 +169,10 @@ impl PluginInfo {
     }
 }
 
+/// The id of a plugin's input-gain parameter, where it has one (EQ 7-Band, Channel Strip). The
+/// plugin processes the level after it, so input meters scale by it.
+pub const INPUT_GAIN: &str = "input_gain";
+
 /// A realtime audio processor or instrument.
 ///
 /// Contract: `process` never allocates or panics. It processes `min(frames, io[c].len())` frames

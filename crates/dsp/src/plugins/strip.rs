@@ -7,7 +7,7 @@ use crate::util::{Smoother, frames_in, sane_channels, sane_sr};
 use crate::{Category, ParamInfo, Plugin, PluginInfo, Unit, db_to_gain};
 
 static STRIP_PARAMS: [ParamInfo; 22] = [
-    lin("input_gain", "Input", -24.0, 24.0, 0.0, Unit::Db),
+    lin(crate::INPUT_GAIN, "Input", -24.0, 24.0, 0.0, Unit::Db),
     toggle("gate_on", "Gate", false),
     lin("gate_threshold", "Gate Thresh", -80.0, 0.0, -50.0, Unit::Db),
     lin("gate_range", "Gate Range", 0.0, 80.0, 40.0, Unit::Db),
