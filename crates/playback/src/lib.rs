@@ -74,6 +74,8 @@ struct Shared {
     /// Speed × 1000.
     speed: AtomicU32,
     meters: Mutex<MeterSnapshot>,
+    /// Meter each insert's input and output (a plugin window is showing them).
+    meter_inserts: AtomicBool,
 }
 
 /// State owned by the audio callback.
@@ -230,6 +232,7 @@ impl AudioState {
             ring.pop_into(&mut self.mix.input, n, self.session.sample_rate.hz());
         }
         self.mix.monitor_only = !self.playing;
+        self.mix.meter_inserts = self.shared.meter_inserts.load(Ordering::Relaxed);
         self.mix.recording = self.recording;
         self.mix.render(&self.session, self.pos, n, &mut self.pending);
         self.send_garbage();
@@ -381,6 +384,7 @@ impl Player {
             position: AtomicI64::new(0),
             playing: AtomicBool::new(false),
             speed: AtomicU32::new(1000),
+            meter_inserts: AtomicBool::new(false),
             meters: Mutex::new(MeterSnapshot::default()),
         });
         let (tx, rx) = channel();
@@ -617,6 +621,11 @@ impl Player {
         let _ = self.tx.send(Cmd::Locate(at));
     }
 
+    /// Whether the mix meters each insert's input and output (only while a plugin window shows them).
+    pub fn set_insert_meters(&self, on: bool) {
+        self.shared.meter_inserts.store(on, Ordering::Relaxed);
+    }
+
     pub fn set_speed(&self, speed: f32) {
         let v = if speed.is_finite() { (speed.clamp(0.1, 4.0) * 1000.0) as u32 } else { 1000 };
         self.shared.speed.store(v, Ordering::Relaxed);
@@ -755,7 +764,9 @@ mod tests {
         let keep = TrackId(1);
         let stale = TrackId(2);
         let mut source = MeterSnapshot::default();
-        source.tracks.insert(keep, StripMeter { peak: [0.5, 0.25], peaks: vec![0.5, 0.25], gain_reduction_db: 3.0 });
+        let mut insert_io = [[0.0; 2]; soundcraft_model::INSERT_SLOTS];
+        insert_io[2] = [0.4, 0.6];
+        source.tracks.insert(keep, StripMeter { peak: [0.5, 0.25], peaks: vec![0.5, 0.25], gain_reduction_db: 3.0, insert_io });
         source.main.peaks = vec![0.75, 0.5];
         let mut out = MeterSnapshot::default();
         out.tracks.insert(stale, StripMeter::default());
@@ -772,6 +783,7 @@ mod tests {
             position: AtomicI64::new(0),
             playing: AtomicBool::new(false),
             speed: AtomicU32::new(1000),
+            meter_inserts: AtomicBool::new(false),
             meters: Mutex::new(MeterSnapshot::default()),
         });
         let (tx, rx) = channel();
@@ -790,6 +802,7 @@ mod tests {
             position: AtomicI64::new(0),
             playing: AtomicBool::new(false),
             speed: AtomicU32::new(1000),
+            meter_inserts: AtomicBool::new(false),
             meters: Mutex::new(MeterSnapshot::default()),
         });
         let (tx, rx) = channel();
@@ -815,6 +828,7 @@ mod tests {
             position: AtomicI64::new(0),
             playing: AtomicBool::new(false),
             speed: AtomicU32::new(1000),
+            meter_inserts: AtomicBool::new(false),
             meters: Mutex::new(MeterSnapshot::default()),
         });
         let (tx, rx) = channel();
@@ -874,6 +888,7 @@ mod tests {
             position: AtomicI64::new(0),
             playing: AtomicBool::new(false),
             speed: AtomicU32::new(1000),
+            meter_inserts: AtomicBool::new(false),
             meters: Mutex::new(MeterSnapshot::default()),
         });
         let (tx, rx) = channel();
@@ -937,6 +952,7 @@ mod tests {
             position: AtomicI64::new(0),
             playing: AtomicBool::new(false),
             speed: AtomicU32::new(1000),
+            meter_inserts: AtomicBool::new(false),
             meters: Mutex::new(MeterSnapshot::default()),
         });
         let (tx, rx) = channel();
@@ -959,6 +975,7 @@ mod tests {
             position: AtomicI64::new(0),
             playing: AtomicBool::new(false),
             speed: AtomicU32::new(1000),
+            meter_inserts: AtomicBool::new(false),
             meters: Mutex::new(MeterSnapshot::default()),
         });
         let (tx, rx) = channel();
