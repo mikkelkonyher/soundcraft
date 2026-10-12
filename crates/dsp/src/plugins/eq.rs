@@ -137,6 +137,9 @@ pub struct Eq<const S: usize> {
     filt: Vec<[Biquad; S]>,
     gain: Smoother,
     sr: f32,
+    /// A parameter changed since the sections were last designed. Switches and choices snap, so
+    /// no smoother settles to trigger the redesign for them (#239).
+    dirty: bool,
 }
 
 /// EQ 7-Band.
@@ -173,8 +176,19 @@ impl<const S: usize> Eq<S> {
         let p = Params::new(info.params);
         let sm = info.params.iter().map(|i| Smoother::new(i.default)).collect();
         let vals = info.params.iter().map(|i| i.default).collect();
-        let mut eq =
-            Self { info, design, gain_ids, p, sm, vals, coeffs: [Coeffs::IDENTITY; S], filt: Vec::new(), gain: Smoother::new(1.0), sr: 48_000.0 };
+        let mut eq = Self {
+            info,
+            design,
+            gain_ids,
+            p,
+            sm,
+            vals,
+            coeffs: [Coeffs::IDENTITY; S],
+            filt: Vec::new(),
+            gain: Smoother::new(1.0),
+            sr: 48_000.0,
+            dirty: false,
+        };
         eq.redesign();
         eq
     }
@@ -192,6 +206,7 @@ impl<const S: usize> Eq<S> {
         }
         let g = db_to_gain(self.total_gain_db(|i| self.p.v(i)));
         self.gain.set(g);
+        self.dirty = true;
     }
 
     fn redesign(&mut self) {
@@ -204,6 +219,7 @@ impl<const S: usize> Eq<S> {
                 b.coeffs = *c;
             }
         }
+        self.dirty = false;
     }
 
     /// Magnitude response (dB, including input/output gain) of the current settings.
@@ -258,7 +274,7 @@ impl<const S: usize> Plugin for Eq<S> {
         let mut pos = 0;
         while pos < frames {
             let n = CHUNK.min(frames - pos);
-            if self.sm.iter().any(Smoother::settling) {
+            if self.dirty || self.sm.iter().any(Smoother::settling) {
                 self.sm.iter_mut().for_each(|s| {
                     s.advance(n);
                 });
