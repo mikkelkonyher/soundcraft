@@ -394,7 +394,11 @@ fn plugin_windows(app: &mut SoundApp, ctx: &egui::Context) {
                         if ui.add(bypass).clicked() {
                             let _ = app.run("mix.insert_bypass", json!({"track": tid.0, "slot": slot}));
                         }
-                        ui.menu_button("Presets ⏷", |ui| preset_menu(app, ui, tid, slot, info, &ins));
+                        // Clicks inside keep the menu open, so the new preset's name can be typed.
+                        let keep_open = egui::containers::menu::MenuConfig::new().close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
+                        egui::containers::menu::MenuButton::new("Presets ⏷")
+                            .config(keep_open)
+                            .ui(ui, |ui| preset_menu(app, ui, tid, slot, info, &ins));
                     }
                     if soundcraft_mix::is_third_party(&ins.plugin) {
                         let open = app.player.as_ref().is_some_and(|p| p.editor_open(tid, slot));
@@ -589,14 +593,16 @@ fn preset_menu(
     let key = egui::Id::new(("preset_name", tid.0, slot));
     let mut name: String = ui.ctx().memory(|m| m.data.get_temp(key)).unwrap_or_else(|| format!("{} preset", info.name));
     ui.horizontal(|ui| {
-        ui.add(egui::TextEdit::singleline(&mut name).desired_width(140.0));
-        if ui.button("Save").clicked() {
+        let field = ui.add(egui::TextEdit::singleline(&mut name).desired_width(140.0));
+        let enter = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+        if ui.button("Save").clicked() || enter {
             let clean = soundcraft_engine::io::sanitize_name(&name);
             let body = json!({"format": "soundcraft-plugin-preset", "plugin": info.id, "params": ins.params});
             let ok = std::fs::create_dir_all(&dir).is_ok() && std::fs::write(dir.join(format!("{clean}.json")), body.to_string()).is_ok();
             app.ui.status = if ok { format!("Saved preset {clean}") } else { "Could not save the preset".into() };
             if ok {
                 let _ = app.run("mix.insert_params", json!({"track": tid.0, "slot": slot, "params": {}, "preset": clean}));
+                ui.close();
             }
         }
     });
