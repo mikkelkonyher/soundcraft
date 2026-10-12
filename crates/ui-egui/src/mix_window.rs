@@ -303,7 +303,8 @@ fn strip(app: &mut SoundApp, ui: &mut Ui, id: TrackId, snap: Option<&MeterSnapsh
             let _ = resp;
             let pr = Rect::from_center_size(pos2(cx, y + ks + 8.0), vec2(ks + 8.0, 13.0));
             ui.painter().rect_filled(pr, 1.0, t.counter_bg);
-            let (_, entered) = editable_readout(ui, pr, ui.id().with(("pan-value", id.0, i)), &pan_text(v), &format!("{:.0}", v * 100.0), parse_pan);
+            let (_, entered) =
+                editable_readout(ui, pr, ui.id().with(("pan-value", id.0, i)), &pan_text(v), &format!("{:.0}", v * 100.0), parse_pan, 9.0);
             if let Some(v) = entered {
                 let _ = app.engine.execute_merged("mix.pan", &json!({"track": id.0, "pan": v, "index": i}), &format!("pan:{}:{i}", id.0));
             }
@@ -378,6 +379,7 @@ fn strip(app: &mut SoundApp, ui: &mut Ui, id: TrackId, snap: Option<&MeterSnapsh
         &db_text(track.mixer.volume_db),
         &format!("{:.1}", track.mixer.volume_db),
         parse_db,
+        9.0,
     );
     if let Some(db) = entered {
         let _ = app.engine.execute_merged("mix.volume", &json!({"track": id.0, "db": db}), &format!("fader:{}", id.0));
@@ -649,6 +651,7 @@ fn send_slot(app: &mut SoundApp, ui: &mut Ui, track: &Track, slot: usize, r: Rec
                 &format!("{} dB", db_text(s.level_db)),
                 &format!("{:.1}", s.level_db),
                 parse_db,
+                9.0,
             );
             if let Some(db) = entered {
                 let _ = app.run("mix.send_level", json!({"track": id.0, "slot": slot, "db": db}));
@@ -751,15 +754,17 @@ fn send_options_menu(app: &mut SoundApp, ui: &mut Ui, id: TrackId, slot: usize, 
     }
 }
 
-/// Paint a value until clicked, then replace it with a focused text field. Enter or clicking away
-/// commits a valid value; Escape cancels. The interaction response remains available for dragging.
-fn editable_readout(
+/// Paint a value (at `size` points) until clicked, then replace it with a focused text field. Enter
+/// or clicking away commits a valid value; Escape cancels. The interaction response remains
+/// available for dragging.
+pub(crate) fn editable_readout(
     ui: &mut Ui,
     r: Rect,
     id: egui::Id,
     display: &str,
     edit_initial: &str,
     parse: fn(&str) -> Option<f32>,
+    size: f32,
 ) -> (Option<egui::Response>, Option<f32>) {
     let t = Tokens::current();
     let active_id = id.with("active");
@@ -774,7 +779,7 @@ fn editable_readout(
             started = true;
             ui.data_mut(|d| d.insert_temp(text_id, edit_initial.to_string()));
         } else {
-            ui.painter().with_clip_rect(r).text(r.center(), Align2::CENTER_CENTER, display, regular(9.0), t.counter_text);
+            ui.painter().with_clip_rect(r).text(r.center(), Align2::CENTER_CENTER, display, regular(size), t.counter_text);
         }
         response = Some(resp);
     }
@@ -787,7 +792,7 @@ fn editable_readout(
             .id(id.with("editor"))
             .frame(egui::Frame::NONE)
             .horizontal_align(egui::Align::Center)
-            .font(regular(9.0))
+            .font(regular(size))
             .desired_width(r.width());
         let edit_resp = child.add_sized(r.size(), edit);
         if started {

@@ -146,6 +146,19 @@ pub struct Tokens {
     pub knob_ring: Color32,
     /// Pan knob pointer.
     pub knob_pointer: Color32,
+    /// EQ editor: graph background.
+    pub eq_bg: Color32,
+    /// EQ editor: frequency and level grid lines.
+    pub eq_grid: Color32,
+    /// EQ editor: the 0 dB line.
+    pub eq_zero: Color32,
+    /// EQ editor: the combined response curve.
+    pub eq_curve: Color32,
+    /// EQ editor: one colour per band (HPF, LF, LMF, MF, HMF, HF, LPF): neutral filters, and the
+    /// bands from low to high in spectrum order, red to blue.
+    pub eq_band: [Color32; 7],
+    /// EQ editor: band section background.
+    pub eq_section: Color32,
     /// Mix insert slot holding a plugin.
     pub insert_on: Color32,
     /// Mix insert slot, bypassed.
@@ -235,6 +248,20 @@ impl Tokens {
         knob_bg: Color32::from_rgb(26, 26, 28),
         knob_ring: Color32::from_rgb(90, 90, 94),
         knob_pointer: Color32::from_rgb(230, 230, 230),
+        eq_bg: Color32::from_rgb(16, 19, 24),
+        eq_grid: Color32::from_rgb(38, 44, 52),
+        eq_zero: Color32::from_rgb(70, 78, 90),
+        eq_curve: Color32::from_rgb(226, 230, 236),
+        eq_band: [
+            Color32::from_rgb(150, 160, 176),
+            Color32::from_rgb(228, 86, 80),
+            Color32::from_rgb(236, 146, 64),
+            Color32::from_rgb(226, 204, 72),
+            Color32::from_rgb(92, 196, 110),
+            Color32::from_rgb(82, 150, 230),
+            Color32::from_rgb(150, 160, 176),
+        ],
+        eq_section: Color32::from_rgb(30, 32, 36),
         insert_on: Color32::from_rgb(52, 62, 80),
         insert_bypass: Color32::from_rgb(70, 56, 30),
         send_on: Color32::from_rgb(46, 66, 56),
@@ -318,6 +345,20 @@ impl Tokens {
         knob_bg: Color32::from_rgb(252, 252, 253),
         knob_ring: Color32::from_rgb(150, 154, 162),
         knob_pointer: Color32::from_rgb(40, 42, 48),
+        eq_bg: Color32::from_rgb(250, 251, 253),
+        eq_grid: Color32::from_rgb(218, 222, 228),
+        eq_zero: Color32::from_rgb(170, 176, 186),
+        eq_curve: Color32::from_rgb(30, 32, 38),
+        eq_band: [
+            Color32::from_rgb(96, 106, 122),
+            Color32::from_rgb(196, 48, 44),
+            Color32::from_rgb(196, 104, 20),
+            Color32::from_rgb(150, 120, 0),
+            Color32::from_rgb(34, 130, 56),
+            Color32::from_rgb(30, 100, 190),
+            Color32::from_rgb(96, 106, 122),
+        ],
+        eq_section: Color32::from_rgb(244, 245, 248),
         insert_on: Color32::from_rgb(206, 218, 236),
         insert_bypass: Color32::from_rgb(240, 222, 186),
         send_on: Color32::from_rgb(204, 230, 214),
