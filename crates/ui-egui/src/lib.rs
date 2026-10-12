@@ -12,6 +12,7 @@ pub mod edit_window;
 pub mod eq_editor;
 pub mod extra_windows;
 pub mod fonts;
+pub mod hardware;
 pub mod icons;
 pub mod menus;
 pub mod midi_editor;

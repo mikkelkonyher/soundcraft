@@ -97,6 +97,8 @@ const AUDIBLE_GAIN: f32 = 1e-4;
 /// Layout on an 8-point rhythm: the gap between sections and the padding inside them.
 const GAP: f32 = 8.0;
 const PAD: f32 = 8.0;
+/// The faceplate rim around the sections, with a screw in each corner.
+const PLATE: f32 = 16.0;
 /// Heights of the two rows (filters, I/O and graph on top; the five bands below), of the I/O
 /// section and of a section's title row.
 const TOP_H: f32 = 280.0;
@@ -342,12 +344,18 @@ pub(crate) fn show(app: &mut SoundApp, ui: &mut Ui, tid: TrackId, slot: usize, i
         // Still editable, but plainly not in the signal path.
         ui.multiply_opacity(0.45);
     }
-    let width = ui.available_width().max(1.0);
+    // A faceplate rim around the sections holds a screw in each corner.
+    let full = ui.available_width().max(1.0);
+    let plate = Rect::from_min_size(ui.cursor().min, vec2(full, TOP_H + GAP + BANDS_H + 2.0 * PLATE));
+    crate::hardware::faceplate(ui.painter(), plate, PLATE);
+    ui.add_space(PLATE);
+    let width = (full - 2.0 * PLATE).max(1.0);
     // One five-column grid for the whole window: the bands fill it below; above, HPF sits over LF,
     // LPF over LMF, input/output spans both, and the graph spans MF to HF.
     let col_w = ((width - GAP * 4.0) / 5.0).max(1.0);
     let col_x = |i: usize| i as f32 * (col_w + GAP);
-    let (top, _) = ui.allocate_exact_size(vec2(width, TOP_H), Sense::hover());
+    let (top, _) = ui.allocate_exact_size(vec2(full, TOP_H), Sense::hover());
+    let top = Rect::from_min_size(top.min + vec2(PLATE, 0.0), vec2(width, TOP_H));
     let io = Rect::from_min_size(top.min, vec2(2.0 * col_w + GAP, IO_H));
     for (i, k) in [0usize, 6].into_iter().enumerate() {
         let left = top.left() + col_x(i);
@@ -359,10 +367,12 @@ pub(crate) fn show(app: &mut SoundApp, ui: &mut Ui, tid: TrackId, slot: usize, i
         graph(app, ui, c, graph_rect);
     }
     ui.add_space(GAP);
-    let (row, _) = ui.allocate_exact_size(vec2(width, BANDS_H), Sense::hover());
+    let (row, _) = ui.allocate_exact_size(vec2(full, BANDS_H), Sense::hover());
+    let row = Rect::from_min_size(row.min + vec2(PLATE, 0.0), vec2(width, BANDS_H));
     for (i, k) in (1usize..=5).enumerate() {
         band_section(app, ui, c, k, Rect::from_min_size(pos2(row.left() + col_x(i), row.top()), vec2(col_w, BANDS_H)));
     }
+    ui.add_space(PLATE);
 }
 
 /// Band `k`'s section frame, coloured top edge and title. Clicking the title row selects the band.
@@ -373,7 +383,7 @@ fn section_frame(ui: &mut Ui, c: Ctx, k: usize, r: Rect) {
     let on = c.engaged(b, SHOWN_GAIN);
     let selected = c.selected(ui) == Some(k);
     // Sections are told apart by tone, not outlines; the band's colour marks its title tab.
-    ui.painter().rect_filled(r, CornerRadius::same(4), t.eq_section);
+    crate::hardware::section(ui.painter(), r);
     let tab = Rect::from_min_size(r.min, vec2(r.width(), if selected { 3.0 } else { 2.0 }));
     ui.painter().rect_filled(tab, CornerRadius { nw: 4, ne: 4, sw: 0, se: 0 }, if on { color } else { with_alpha(color, 0.35) });
     ui.painter().text(
@@ -409,7 +419,7 @@ fn labeled_knob(app: &mut SoundApp, ui: &mut Ui, c: Ctx, p: &ParamInfo, r: Rect,
     let top = r.center().y - (LABEL_H + 2.0 + VALUE_H) / 2.0;
     ui.painter().text(pos2(left, top + LABEL_H / 2.0), Align2::LEFT_CENTER, style.label, bold(LABEL_PT), t.text_dim);
     let value = Rect::from_min_max(pos2(left, top + LABEL_H + 2.0), pos2(right, top + LABEL_H + 2.0 + VALUE_H));
-    ui.painter().rect_filled(value, CornerRadius::same(3), t.counter_bg);
+    crate::hardware::well(ui.painter(), value, 3.0, t.counter_bg);
     value_readout(app, ui, c, p, value);
 }
 
@@ -418,7 +428,7 @@ fn labeled_knob(app: &mut SoundApp, ui: &mut Ui, c: Ctx, p: &ParamInfo, r: Rect,
 fn io_section(app: &mut SoundApp, ui: &mut Ui, c: Ctx, r: Rect) {
     let t = Tokens::current();
     let ui = &mut confined(ui, r);
-    ui.painter().rect_filled(r, CornerRadius::same(4), t.eq_section);
+    crate::hardware::section(ui.painter(), r);
     let meters = app.plugin_meters.get(&(c.tid, c.slot)).copied().unwrap_or_default();
     let bar_left = r.left() + PAD + METER_LABEL_W;
     let mut scale = Rect::NOTHING;
@@ -529,15 +539,8 @@ fn type_button(ui: &mut Ui, id: Id, r: Rect, shape: Shape, selected: bool, label
     let t = Tokens::current();
     let resp = ui.interact(r, id, Sense::click());
     resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::RadioButton, true, selected, label));
-    let fill = if selected {
-        t.accent
-    } else if resp.hovered() {
-        t.button_hi
-    } else {
-        t.button
-    };
     let p = ui.painter();
-    p.rect_filled(r, CornerRadius::same(3), fill);
+    crate::hardware::switch(p, r, selected, resp.hovered(), t.accent);
     if resp.has_focus() {
         p.rect_stroke(r.expand(2.0), CornerRadius::same(3), Stroke::new(1.0, t.accent), StrokeKind::Outside);
     }
@@ -558,7 +561,7 @@ fn type_button(ui: &mut Ui, id: Id, r: Rect, shape: Shape, selected: bool, label
 
 fn graph(app: &mut SoundApp, ui: &mut Ui, c: Ctx, outer: Rect) {
     let t = Tokens::current();
-    ui.painter().rect_filled(outer, CornerRadius::same(4), t.eq_bg);
+    crate::hardware::well(ui.painter(), outer, 4.0, t.eq_bg);
     let plot =
         Plot(Rect::from_min_max(pos2(outer.left() + AXIS_W, outer.top() + PLOT_INSET), pos2(outer.right() - PLOT_INSET, outer.bottom() - AXIS_H)));
     let r = plot.0;
@@ -602,6 +605,8 @@ fn graph(app: &mut SoundApp, ui: &mut Ui, c: Ctx, outer: Rect) {
     }
     let line: Vec<Pos2> = cur.freqs.iter().zip(&cur.total).map(|(f, db)| pos2(plot.x(*f), plot.curve_y(*db))).collect();
     curve.add(egui::Shape::line(line, Stroke::new(2.0, t.eq_curve)));
+
+    crate::hardware::glass(ui.painter(), outer, 4.0);
 
     // Nodes, drawn and hit-tested last so they sit above the curves.
     for k in 0..BANDS.len() {

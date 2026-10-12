@@ -46,7 +46,7 @@ Legend: ✅ matches · 🟡 partial · ❌ missing.
 | I/O Setup | 🟡 | Busses and paths; no hardware channel matrix (G-01) |
 | Preferences | 🟡 | Many settings stored, fewer honoured |
 | Window configurations, Tile/Cascade | 🟡 | Configurations ✅; Tile/Cascade in PR #151 |
-| Plugin windows | 🟡 | EQ 7-Band has its own editor laid out like the incumbent's stock EQ: draggable response graph, band sections, IN/OUT meters with clip lamps (#139). The other built-in plugins show generic parameter sliders; #138 asks for skeuomorphic design; multi-page plugin views (#6) |
+| Plugin windows | 🟡 | EQ 7-Band has its own editor laid out like the incumbent's stock EQ: draggable response graph, band sections, IN/OUT meters with clip lamps (#139), and a hardware-style face drawn in code (knurled knobs, screws, backlit switches, glass over the displays). The other built-in plugins show generic parameter sliders; #138 asks for that style across the app; multi-page plugin views (#6) |
 | Command palette (Search) | ✅ | Over every command |
 
 ## Look and meters
@@ -64,5 +64,5 @@ Legend: ✅ matches · 🟡 partial · ❌ missing.
 
 | Date | Change | Summary |
 |---|---|---|
-| 2026-10-12 | minor | Plugin windows: EQ 7-Band editor; Bypass keeps its label; the EQ window does not fold away |
+| 2026-10-12 | minor | Plugin windows: EQ 7-Band editor with a hardware-style face; Bypass keeps its label; the EQ window does not fold away |
 | 2026-10-10 | major | Created: tools, modes, shortcuts, windows and meters checklist against Pro Tools 2026.4.1 |

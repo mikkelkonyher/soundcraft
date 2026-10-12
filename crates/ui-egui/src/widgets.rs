@@ -150,19 +150,18 @@ pub fn param_knob(ui: &mut Ui, r: Rect, id: egui::Id, norm: f32, default: f32, b
     }
     let next = next.clamp(0.0, 1.0);
     let c = r.center();
-    let rad = size * 0.36;
+    let rad = size * 0.34;
     let p = ui.painter();
     if resp.has_focus() {
-        p.circle_stroke(c, rad + 6.0, Stroke::new(1.0, t.accent));
+        p.circle_stroke(c, rad + 8.0, Stroke::new(1.0, t.accent));
     }
-    p.add(egui::Shape::line(knob_arc(c, rad + 3.0, KNOB_START, KNOB_START + KNOB_SWEEP), Stroke::new(2.0, t.knob_ring.gamma_multiply(0.5))));
+    p.add(egui::Shape::line(knob_arc(c, rad + 5.0, KNOB_START, KNOB_START + KNOB_SWEEP), Stroke::new(2.0, t.knob_ring.gamma_multiply(0.5))));
     let at = KNOB_START + KNOB_SWEEP * next;
     let from = if bipolar { KNOB_START + KNOB_SWEEP * 0.5 } else { KNOB_START };
     if (at - from).abs() > 1e-3 {
-        p.add(egui::Shape::line(knob_arc(c, rad + 3.0, from.min(at), from.max(at)), Stroke::new(2.5, accent)));
+        p.add(egui::Shape::line(knob_arc(c, rad + 5.0, from.min(at), from.max(at)), Stroke::new(2.5, accent)));
     }
-    p.circle(c, rad, t.knob_bg, Stroke::new(1.0, if resp.hovered() { accent } else { t.knob_ring }));
-    p.line_segment([c + egui::Vec2::angled(at) * rad * 0.3, c + egui::Vec2::angled(at) * rad * 0.9], Stroke::new(2.0, t.knob_pointer));
+    crate::hardware::knob(p, c, rad, at, accent, resp.hovered());
     let changed = (next - norm).abs() > f32::EPSILON;
     (resp, changed.then_some(next))
 }
@@ -218,17 +217,10 @@ pub fn pill_switch(ui: &mut Ui, id: egui::Id, r: Rect, text: &str, on: bool, lab
     let t = Tokens::current();
     let resp = ui.interact(r, id, Sense::click());
     resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, on, label));
-    let fill = if on {
-        t.accent
-    } else if resp.hovered() {
-        t.button_hi
-    } else {
-        t.button
-    };
     let p = ui.painter();
-    p.rect_filled(r, CornerRadius::same(9), fill);
+    crate::hardware::switch(p, r, on, resp.hovered(), t.accent);
     if resp.has_focus() {
-        p.rect_stroke(r.expand(2.0), CornerRadius::same(10), Stroke::new(1.0, t.accent), StrokeKind::Outside);
+        p.rect_stroke(r.expand(2.0), CornerRadius::same(6), Stroke::new(1.0, t.accent), StrokeKind::Outside);
     }
     p.text(r.center(), Align2::CENTER_CENTER, text, bold(10.0), if on { Color32::WHITE } else { t.text_dim });
     resp.on_hover_text(label)
@@ -241,7 +233,7 @@ pub fn hmeter(ui: &Ui, r: Rect, level: f32, hold: f32, clip: bool) -> Rect {
     let lamp = Rect::from_min_max(pos2(r.max.x - 8.0, r.min.y), r.max);
     let bar = Rect::from_min_max(r.min, pos2(lamp.min.x - 2.0, r.max.y));
     let p = ui.painter();
-    p.rect_filled(bar, 2.0, t.meter_bg);
+    crate::hardware::well(p, bar, 2.0, t.meter_bg);
     let inner = bar.shrink(1.0);
     let x = |f: f32| inner.min.x + inner.width() * f;
     let lv = level_pos(level);
@@ -258,7 +250,8 @@ pub fn hmeter(ui: &Ui, r: Rect, level: f32, hold: f32, clip: bool) -> Rect {
         let hx = x(hv);
         p.line_segment([pos2(hx, inner.min.y), pos2(hx, inner.max.y)], Stroke::new(1.5, hold_color(&t, hv)));
     }
-    p.rect_filled(lamp, 2.0, if clip { t.meter_red } else { t.meter_clip_off });
+    crate::hardware::glass(p, bar, 2.0);
+    crate::hardware::switch(p, lamp, clip, false, t.meter_red);
     lamp
 }
 

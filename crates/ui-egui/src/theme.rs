@@ -157,8 +157,20 @@ pub struct Tokens {
     /// EQ editor: one colour per band (HPF, LF, LMF, MF, HMF, HF, LPF): neutral filters, and the
     /// bands from low to high in spectrum order, red to blue.
     pub eq_band: [Color32; 7],
-    /// EQ editor: band section background.
-    pub eq_section: Color32,
+    /// EQ editor: the faceplate's brushed metal, top and bottom of its gradient.
+    pub eq_plate: [Color32; 2],
+    /// EQ editor: a section panel, top and bottom of its gradient.
+    pub eq_section: [Color32; 2],
+    /// EQ editor: screw heads.
+    pub eq_screw: Color32,
+    /// EQ editor: a knob's knurled skirt.
+    pub eq_knob_skirt: Color32,
+    /// EQ editor: a knob's metal cap.
+    pub eq_knob_cap: Color32,
+    /// EQ editor: the fixed highlight on a knob's cap.
+    pub eq_glint: Color32,
+    /// EQ editor: a push switch while off.
+    pub eq_switch: Color32,
     /// Mix insert slot holding a plugin.
     pub insert_on: Color32,
     /// Mix insert slot, bypassed.
@@ -261,7 +273,13 @@ impl Tokens {
             Color32::from_rgb(82, 150, 230),
             Color32::from_rgb(150, 160, 176),
         ],
-        eq_section: Color32::from_rgb(30, 32, 36),
+        eq_plate: [Color32::from_rgb(52, 54, 58), Color32::from_rgb(20, 21, 23)],
+        eq_section: [Color32::from_rgb(46, 48, 51), Color32::from_rgb(23, 24, 27)],
+        eq_screw: Color32::from_gray(150),
+        eq_knob_skirt: Color32::from_gray(38),
+        eq_knob_cap: Color32::from_gray(120),
+        eq_glint: Color32::from_rgba_premultiplied(71, 71, 71, 71),
+        eq_switch: Color32::from_gray(44),
         insert_on: Color32::from_rgb(52, 62, 80),
         insert_bypass: Color32::from_rgb(70, 56, 30),
         send_on: Color32::from_rgb(46, 66, 56),
@@ -358,7 +376,13 @@ impl Tokens {
             Color32::from_rgb(30, 100, 190),
             Color32::from_rgb(96, 106, 122),
         ],
-        eq_section: Color32::from_rgb(244, 245, 248),
+        eq_plate: [Color32::from_rgb(248, 249, 251), Color32::from_rgb(215, 216, 218)],
+        eq_section: [Color32::from_rgb(250, 250, 252), Color32::from_rgb(229, 230, 233)],
+        eq_screw: Color32::from_gray(200),
+        eq_knob_skirt: Color32::from_gray(70),
+        eq_knob_cap: Color32::from_gray(185),
+        eq_glint: Color32::from_rgba_premultiplied(115, 115, 115, 115),
+        eq_switch: Color32::from_gray(222),
         insert_on: Color32::from_rgb(206, 218, 236),
         insert_bypass: Color32::from_rgb(240, 222, 186),
         send_on: Color32::from_rgb(204, 230, 214),
